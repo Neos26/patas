@@ -1,0 +1,16 @@
+{
+  "name": "raite-smart-classroom",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Patas — AI academic integrity & fair assessment (RAITE 2026)",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix server\" \"npm run dev --prefix web\"",
+    "seed": "npm run seed --prefix server",
+    "smoke": "npm run smoke --prefix server",
+    "build": "npm run build --prefix web",
+    "start": "npm run start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,148 @@
+rules_version = '2';
+
+// Firestore Security Rules — AI Academic Integrity & Fair Assessment System
+// Principle: all privileged data flows through the Express API (Admin SDK bypasses
+// these rules). Client SDK access is limited to what each role genuinely needs,
+// enforced row-by-row. Default = deny.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == 'admin';
+    }
+
+    function isTeacher() {
+      return signedIn() && role() == 'teacher';
+    }
+
+    function isStudent() {
+      return signedIn() && role() == 'student';
+    }
+
+    function ownsQuiz(quizId) {
+      return isAdmin() || (isTeacher() &&
+        get(/databases/$(database)/documents/quizzes/$(quizId)).data.createdBy == uid());
+    }
+
+    // ---- Core identity ------------------------------------------------------
+
+    match /users/{userId} {
+      // Users can read their own profile; admins can read anyone's.
+      allow read: if signedIn() && (uid() == userId || isAdmin());
+      // Writes happen only via the API (Admin SDK).
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /teachers/{teacherId} {
+      allow read: if signedIn() && (uid() == teacherId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if signedIn() && (uid() == studentId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /classes/{classId} {
+      allow read: if isAdmin() || (isTeacher() && resource.data.teacherId == uid());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentId == uid())
+        || (isTeacher() && resource.data.teacherId == uid());
+      allow write: if isAdmin();
+    }
+
+    // ---- Assessment ---------------------------------------------------------
+
+    match /quizzes/{quizId} {
+      // Creator teacher and admins can inspect quiz metadata.
+      // Students receive their quiz papers exclusively through the API.
+      allow read: if isAdmin() || (isTeacher() && resource.data.createdBy == uid());
+      allow write: if isAdmin()
+        || (isTeacher() && request.resource.data.createdBy == uid()
+            && resource == null);
+      allow update, delete: if ownsQuiz(quizId);
+    }
+
+    match /questionPools/{poolId} {
+      allow read: if ownsQuiz(resource.data.quizId) || (isTeacher() && resource.data.createdBy == uid());
+      allow write: if isAdmin() || (isTeacher() && resource.data.createdBy == uid());
+    }
+
+    // Every quiz paper / assignment / attempt is server-assembled.
+    match /quizVersions/{docId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentId == uid())
+        || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only
+    }
+
+    match /quizAssignments/{docId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentId == uid())
+        || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only
+    }
+
+    match /quizAttempts/{attemptId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentId == uid())
+        || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only (start / autosave / submit)
+    }
+
+    match /quizAnswers/{answerId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentId == uid())
+        || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only
+    }
+
+    // ---- Integrity ----------------------------------------------------------
+
+    // Behavioral events are created by the student's quiz player via the API;
+    // the collection exists for realtime teacher listeners (see below).
+    match /attemptEvents/{eventId} {
+      allow read: if isAdmin() || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only
+    }
+
+    // Teacher integrity report: realtime listener for in-app alerts.
+    match /integrityFlags/{flagId} {
+      allow read: if isAdmin() || (isTeacher() && ownsQuiz(resource.data.quizId));
+      allow write: if false; // API only (generation + teacher review go through API)
+    }
+
+    match /aiInsights/{insightId} {
+      allow read: if isAdmin() || (isTeacher() && resource.data.teacherId == uid());
+      allow write: if false; // API only
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // API only
+    }
+
+    // Everything else: denied by default.
+  }
+}

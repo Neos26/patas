@@ -1,0 +1,13 @@
+node_modules/
+dist/
+server/data/
+.env
+.env.local
+.env.*.local
+.vercel
+.firebase/
+serviceAccount*.json
+*-service-account.json
+coverage/
+*.log
+.DS_Store
